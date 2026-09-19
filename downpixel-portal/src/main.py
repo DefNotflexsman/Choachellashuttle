@@ -603,3 +603,573 @@ async function getToken() {{
 async function testApiKey() {{
   logActivity('Testing API key...');
   const res = await fetch('/api/authentication', {{headers: {{'X-API-Key': '{API_KEY}'}}}});
+async function fetchMetrics() {{
+  logActivity('Fetching admin metrics...');
+  let token = document.getElementById('jwt-token').value;
+  if (!token) {{ await getToken(); token = document.getElementById('jwt-token').value; }}
+  const res = await fetch('/api/admin/metrics', {{headers: {{'Authorization': 'Bearer ' + token}}}});
+  const text = await res.text();
+  document.getElementById('control-output').innerHTML = '<pre>' + text + '</pre>';
+  if (res.ok) {{
+    try {{
+      const data = JSON.parse(text);
+      document.getElementById('stat-requests').textContent = data.metrics.requests_processed.toLocaleString();
+      document.getElementById('stat-nodes').textContent = data.metrics.active_nodes;
+      document.getElementById('stat-uptime').textContent = data.metrics.uptime;
+    }} catch(e) {{}}
+  }}
+  logActivity(res.ok ? '✅ Metrics retrieved' : '❌ Metrics failed');
+}}
+
+async function inspectRequest() {{
+  logActivity('Inspecting request metadata...');
+  const res = await fetch('/api/request', {{method: 'POST'}});
+  const text = await res.text();
+  document.getElementById('control-output').innerHTML = '<pre>' + text + '</pre>';
+  logActivity('✅ Request inspected');
+}}
+
+function showToast(msg, type) {{
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => {{ toast.remove(); }}, 3000);
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEBSOCKET CLIENT PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+WS_CLIENT_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebSocket Client &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">WebSocket Client</h1><p class="subtitle">Real-time gateway connection</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="field">
+      <label>Endpoint</label>
+      <select id="ws-endpoint">
+        <option value="/ws">/ws &mdash; WebSocket Gateway</option>
+        <option value="/server/accept">/server/accept &mdash; Secondary Endpoint</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn" onclick="connectWS()" id="connect-btn">Connect</button>
+      <button class="btn btn-secondary" onclick="disconnectWS()" id="disconnect-btn" disabled>Disconnect</button>
+    </div>
+    <div style="margin-top:0.75rem;font-size:0.85rem;">
+      <span id="ws-status" style="color:var(--text-muted);">● Disconnected</span>
+    </div>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="section-label">Messages</div>
+    <div id="ws-messages" style="min-height:200px;max-height:350px;overflow-y:auto;margin-top:0.5rem;"></div>
+    <div style="display:flex;gap:0.5rem;margin-top:1rem;">
+      <input type="text" id="ws-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendWS()">
+      <button class="btn" onclick="sendWS()" id="send-btn" disabled>Send</button>
+    </div>
+  </div>
+
+  <div class="footer">WebSocket Client &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+let ws = null;
+function addMsg(text, type) {{
+  const div = document.getElementById('ws-messages');
+  const msg = document.createElement('div');
+  msg.className = 'ws-message ' + type;
+  const now = new Date().toLocaleTimeString();
+  msg.innerHTML = '<span style="color:var(--text-muted);font-size:0.75rem;">[' + now + ']</span> ' + text;
+  div.appendChild(msg);
+  div.scrollTop = div.scrollHeight;
+}}
+function connectWS() {{
+  const endpoint = document.getElementById('ws-endpoint').value;
+  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + endpoint;
+  addMsg('Connecting to ' + url + '...', 'system');
+  ws = new WebSocket(url);
+  ws.onopen = () => {{
+    document.getElementById('ws-status').innerHTML = '<span style="color:var(--neon-green);">● Connected</span>';
+    document.getElementById('connect-btn').disabled = true;
+    document.getElementById('disconnect-btn').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+    addMsg('✅ Connection established', 'system');
+  }};
+  ws.onmessage = (e) => addMsg(e.data, 'received');
+  ws.onclose = () => {{
+    document.getElementById('ws-status').innerHTML = '<span style="color:var(--text-muted);">● Disconnected</span>';
+    document.getElementById('connect-btn').disabled = false;
+    document.getElementById('disconnect-btn').disabled = true;
+    document.getElementById('send-btn').disabled = true;
+    addMsg('Connection closed', 'system');
+  }};
+  ws.onerror = () => addMsg('❌ Connection error', 'system');
+}}
+function disconnectWS() {{ if (ws) ws.close(); }}
+function sendWS() {{
+  const input = document.getElementById('ws-input');
+  if (ws && ws.readyState === 1 && input.value.trim()) {{
+    addMsg(input.value, 'sent');
+    ws.send(input.value);
+    input.value = '';
+  }}
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API EXPLORER PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+API_EXPLORER_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Explorer &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">API Explorer</h1><p class="subtitle">Test API endpoints interactively</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="field">
+      <label>Endpoint</label>
+      <select id="api-endpoint">
+        <option value="/api/authentication|GET">GET /api/authentication (API Key)</option>
+        <option value="/api/request|POST">POST /api/request (Inspect)</option>
+        <option value="/api/endpoint/test|GET">GET /api/endpoint/test</option>
+        <option value="/api/endpoint/test|POST">POST /api/endpoint/test</option>
+      </select>
+    </div>
+    <div class="field" id="api-key-field">
+      <label>X-API-Key Header</label>
+      <input type="text" id="api-key-input" value="{API_KEY}">
+    </div>
+    <button class="btn" onclick="sendApiRequest()" id="api-btn">Send Request</button>
+    <div id="api-output" class="output-box"></div>
+  </div>
+
+  <div class="footer">API Explorer &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+async function sendApiRequest() {{
+  const btn = document.getElementById('api-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> Sending...';
+  const [path, method] = document.getElementById('api-endpoint').value.split('|');
+  const apiKey = document.getElementById('api-key-input').value;
+  const headers = {{}};
+  if (path === '/api/authentication') headers['X-API-Key'] = apiKey;
+  const res = await fetch(path, {{method, headers}});
+  const text = await res.text();
+  let display = text;
+  try {{ display = JSON.stringify(JSON.parse(text), null, 2); }} catch(e) {{}}
+  document.getElementById('api-output').innerHTML = '<pre>' + display + '</pre>';
+  btn.disabled = false; btn.textContent = 'Send Request';
+}}
+document.getElementById('api-endpoint').addEventListener('change', () => {{
+  const val = document.getElementById('api-endpoint').value;
+  document.getElementById('api-key-field').style.display = val.startsWith('/api/authentication') ? 'block' : 'none';
+}});
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOKEN GENERATOR PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+TOKEN_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Token Generator &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container" style="max-width:600px;">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">Token Generator</h1><p class="subtitle">Obtain a JWT bearer token</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="field"><label>Username</label><input type="text" id="tok-user" value="admin"></div>
+    <div class="field"><label>Password</label><input type="password" id="tok-pass" value="secret123"></div>
+    <button class="btn" onclick="genToken()" id="tok-btn">Generate Token</button>
+    <div id="tok-output" class="output-box"></div>
+  </div>
+
+  <div class="footer">Token Generator &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+async function genToken() {{
+  const btn = document.getElementById('tok-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
+  const user = document.getElementById('tok-user').value;
+  const pass = document.getElementById('tok-pass').value;
+  const res = await fetch('/token', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+    body: 'username=' + encodeURIComponent(user) + '&password=' + encodeURIComponent(pass)
+  }});
+  const text = await res.text();
+  let display = text;
+  try {{ display = JSON.stringify(JSON.parse(text), null, 2); }} catch(e) {{}}
+  document.getElementById('tok-output').innerHTML = '<pre>' + display + '</pre>';
+  btn.disabled = false; btn.textContent = 'Generate Token';
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UUID GENERATOR PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+UUID_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UUID Generator &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container" style="max-width:600px;">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">UUID Generator</h1><p class="subtitle">Generate UUIDs via external API</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="field"><label>Amount (1-1000)</label><input type="number" id="uuid-amount" value="10" min="1" max="1000"></div>
+    <button class="btn" onclick="genUUIDs()" id="uuid-btn">Generate</button>
+    <div id="uuid-output" class="output-box"></div>
+  </div>
+
+  <div class="footer">UUID Generator &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+async function genUUIDs() {{
+  const btn = document.getElementById('uuid-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
+  const amount = document.getElementById('uuid-amount').value;
+  const res = await fetch('/api/status?amount=' + amount);
+  const text = await res.text();
+  let display = text;
+  try {{
+    const data = JSON.parse(text);
+    display = data.uuids.map((u, i) => (i+1) + '. ' + u).join('\\n');
+  }} catch(e) {{}}
+  document.getElementById('uuid-output').innerHTML = '<pre>' + display + '</pre>';
+  btn.disabled = false; btn.textContent = 'Generate';
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ITEM LOOKUP PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+ITEM_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Item Lookup &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container" style="max-width:600px;">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">Item Lookup</h1><p class="subtitle">Retrieve item details by ID</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <div class="field"><label>Item ID (1-100)</label><input type="number" id="item-id" value="5" min="1" max="100"></div>
+    <button class="btn" onclick="lookupItem()" id="item-btn">Look Up</button>
+    <div id="item-output" class="output-box"></div>
+  </div>
+
+  <div class="footer">Item Lookup &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+async function lookupItem() {{
+  const btn = document.getElementById('item-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> Looking up...';
+  const id = document.getElementById('item-id').value;
+  const res = await fetch('/api/items/' + id);
+  const text = await res.text();
+  let display = text;
+  try {{ display = JSON.stringify(JSON.parse(text), null, 2); }} catch(e) {{}}
+  document.getElementById('item-output').innerHTML = '<pre>' + display + '</pre>';
+  btn.disabled = false; btn.textContent = 'Look Up';
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GITHUB INFO PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+GITHUB_PAGE = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Info &mdash; Portal Engine</title><style>{SHARED_CSS}</style></head>
+<body><div class="container" style="max-width:700px;">
+  <div class="glass card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+    <div><h1 class="gradient-text">GitHub Info</h1><p class="subtitle">Repository details from GitHub API</p></div>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+
+  <div class="glass card" style="margin-top:1rem;">
+    <button class="btn" onclick="fetchGitHub()" id="gh-btn">Fetch Repository Info</button>
+    <div id="gh-output" class="output-box"></div>
+  </div>
+
+  <div class="footer">GitHub Info &middot; <a href="https://workers.cloudflare.com">Cloudflare Workers</a></div>
+</div>
+
+<script>
+async function fetchGitHub() {{
+  const btn = document.getElementById('gh-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> Fetching...';
+  const res = await fetch('/api/github/info');
+  const text = await res.text();
+  let display = text;
+  try {{
+    const data = JSON.parse(text);
+    const r = data.data;
+    display = 'Repository: ' + (r.full_name || 'N/A') + '\\n' +
+      'Description: ' + (r.description || 'N/A') + '\\n' +
+      'Stars: ' + (r.stargazers_count || 0) + '\\n' +
+      'Forks: ' + (r.forks_count || 0) + '\\n' +
+      'Open Issues: ' + (r.open_issues_count || 0) + '\\n' +
+      'Language: ' + (r.language || 'N/A') + '\\n' +
+      'Created: ' + (r.created_at || 'N/A') + '\\n' +
+      'Updated: ' + (r.updated_at || 'N/A') + '\\n' +
+      'URL: ' + (r.html_url || 'N/A');
+  }} catch(e) {{}}
+  document.getElementById('gh-output').innerHTML = '<pre>' + display + '</pre>';
+  btn.disabled = false; btn.textContent = 'Fetch Repository Info';
+}}
+</script>
+</body></html>"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FASTAPI APP
+# ═══════════════════════════════════════════════════════════════════════════════
+app = FastAPI(debug=True, title="Asynchronous Portal Engine", description="FastAPI on Cloudflare Workers")
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> User:
+    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials", headers={"WWW-Authenticate": "Bearer"})
+    if not token:
+        raise credentials_exception
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    db = await get_db(request)
+    user_dict = await db_get_user_by_username(db, username)
+    if user_dict is None:
+        raise credentials_exception
+    return User(username=user_dict["username"], full_name=user_dict.get("email", ""), is_admin=user_dict.get("role") == "admin")
+
+async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> str:
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key header.")
+    return x_api_key
+
+class ItemNotFoundException(Exception):
+    def __init__(self, item_id: int):
+        self.item_id = item_id
+
+@app.exception_handler(ItemNotFoundException)
+async def item_not_found_handler(request: Request, exc: ItemNotFoundException):
+    return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": f"Item with ID {exc.item_id} does not exist."})
+
+@app.middleware("http")
+async def log_middleware(request: Request, call_next):
+    start_time = time.time()
+    if request.url.path.startswith("/api/"):
+        print(f"[API] {request.method} | {request.url.path}")
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = str(time.time() - start_time)
+    return response
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API ENDPOINTS (curl-compatible)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/request", tags=["API Parser"])
+async def inspect_request_endpoint(request: Request):
+    return {"status": "success", "parsed_request": {"path": request.url.path, "method": request.method, "client_ip": request.client.host if request.client else "Unknown", "headers": dict(request.headers), "query_params": dict(request.query_params), "timestamp": datetime.utcnow().isoformat()}}
+
+@app.post("/token", response_model=Token, tags=["Auth"])
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    db = await get_db(request)
+    await db_seed_if_empty(db)
+    user_dict = await db_get_user_by_username(db, form_data.username)
+    if not user_dict or not verify_password(form_data.password, user_dict["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password", headers={"WWW-Authenticate": "Bearer"})
+    # Update last_login timestamp
+    if db is not None:
+        try:
+            await db.prepare("UPDATE users SET last_login = datetime('now') WHERE username = ?").bind(form_data.username).run()
+        except Exception:
+            pass
+    access_token = create_access_token(data={"sub": user_dict["username"]}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/items/{item_id}", response_model=ItemResponse, tags=["Items"])
+async def read_item(item_id: int = Path(..., ge=1)):
+    if item_id > 100:
+        raise ItemNotFoundException(item_id=item_id)
+    return {"item_id": item_id, "name": f"Sample Item #{item_id}"}
+
+@app.get("/api/status", response_model=UUIDResponse, tags=["External APIs"])
+async def get_uuid_status(amount: int = Query(10, ge=1, le=1000)):
+    import httpx
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(f"https://www.uuidtools.com/api/generate/v1/count/{amount}", timeout=10.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to retrieve UUIDs.")
+            return {"status": "success", "requested_amount": amount, "uuids": response.json()}
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Network error: {exc}")
+
+@app.get("/api/authentication", response_model=StatusResponse, tags=["Auth"])
+async def get_auth_status(api_key: str = Depends(verify_api_key)):
+    return {"status": "ok", "message": "Service authentication valid."}
+
+@app.get("/api/endpoint/test", tags=["Testing"])
+async def handle_api_get():
+    return {"message": "Retrieved endpoint status via GET"}
+
+@app.post("/api/endpoint/test", status_code=status.HTTP_201_CREATED, tags=["Testing"])
+async def handle_api_post():
+    return {"message": "Resource created via POST"}
+
+@app.get("/api/admin/metrics", tags=["Admin"])
+async def get_admin_statistics(current_user: User = Depends(get_current_user)):
+    return {"status": "success", "requested_by": current_user.username, "metrics": {"uptime": "99.9%", "active_nodes": 4, "requests_processed": 1024}}
+
+@app.post("/api/server/mc", response_model=ProcessResponse, tags=["Admin"])
+async def launch_minecraft_server(current_user: User = Depends(get_current_user)):
+    return {"status": "success", "message": "Background process initiated (simulated on Workers).", "pid": 0, "initiated_by": current_user.username}
+
+@app.get("/api/github/info", tags=["External APIs"])
+async def get_github_repo_info():
+    import httpx
+    repo = github_creds["info"]["user"]
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(f"https://api.github.com/repos/{repo}", headers={"User-Agent": "FastAPI-Portal-Engine"}, timeout=10.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"GitHub API error (HTTP {response.status_code}).")
+            return {"status": "success", "repository": repo, "data": response.json()}
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Network error: {exc}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HTML PAGES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def home():
+    return HTMLResponse(content=LANDING_PAGE)
+
+@app.get("/admindashboard", response_class=HTMLResponse, include_in_schema=False)
+async def admin_dashboard_page(admin_session: Optional[str] = Cookie(None)):
+    if admin_session == "authenticated":
+        return HTMLResponse(content=ADMIN_DASHBOARD)
+    return HTMLResponse(content=ADMIN_LOGIN)
+
+@app.post("/admindashboard/login", include_in_schema=False)
+async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    db = await get_db(request)
+    await db_seed_if_empty(db)
+    user_dict = await db_get_user_by_username(db, username)
+    if user_dict and verify_password(password, user_dict["password_hash"]) and user_dict.get("role") == "admin":
+        response = RedirectResponse(url="/admindashboard", status_code=status.HTTP_303_SEE_OTHER)
+        response.set_cookie(key="admin_session", value="authenticated", httponly=True)
+        return response
+    return RedirectResponse(url="https://www.youtube.com", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.get("/admindashboard/logout", include_in_schema=False)
+async def admin_logout():
+    response = RedirectResponse(url="/admindashboard", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie("admin_session")
+    return response
+
+@app.get("/register", response_class=HTMLResponse, include_in_schema=False)
+async def register_page():
+    return HTMLResponse(content=REGISTER_PAGE)
+
+@app.post("/register", tags=["Auth"])
+async def register_user(request: Request, username: str = Form(...), email: str = Form(...), password: str = Form(...)):
+    db = await get_db(request)
+    # Check if username already exists
+    existing = await db_get_user_by_username(db, username)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    # Check if email already exists
+    if db is not None:
+        result = await db.prepare("SELECT id FROM users WHERE email = ?").bind(email).all()
+        if result.get("results"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    # Create the user
+    user = await db_create_user(db, username, email, password, role="user")
+    return {"status": "success", "message": f"User '{username}' registered successfully", "user": user}
+
+@app.get("/ws-client", response_class=HTMLResponse, include_in_schema=False)
+async def ws_client_page():
+    return HTMLResponse(content=WS_CLIENT_PAGE)
+
+@app.get("/api-explorer", response_class=HTMLResponse, include_in_schema=False)
+async def api_explorer_page():
+    return HTMLResponse(content=API_EXPLORER_PAGE)
+
+@app.get("/token-generator", response_class=HTMLResponse, include_in_schema=False)
+async def token_page():
+    return HTMLResponse(content=TOKEN_PAGE)
+
+@app.get("/uuid-generator", response_class=HTMLResponse, include_in_schema=False)
+async def uuid_page():
+    return HTMLResponse(content=UUID_PAGE)
+
+@app.get("/item-lookup", response_class=HTMLResponse, include_in_schema=False)
+async def item_page():
+    return HTMLResponse(content=ITEM_PAGE)
+
+@app.get("/github-info", response_class=HTMLResponse, include_in_schema=False)
+async def github_page():
+    return HTMLResponse(content=GITHUB_PAGE)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEBSOCKET ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"Server received: {data}")
+    except WebSocketDisconnect:
+        print("[WS] Client disconnected")
+
+@app.websocket("/server/accept")
+async def websocket_accept_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"Server received: {data}")
+    except WebSocketDisconnect:
+        print("[WS] Client disconnected")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLOUDFLARE WORKERS ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════════════════
+from workers import asgi
+Default = asgi.entrypoint(app)
