@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import fnmatch
 import json
 import os
 import sys
@@ -124,6 +125,73 @@ def load_token_from_env() -> str:
     return token
 
 
+# ---- .gitignore parsing & matching ----
+
+def parse_gitignore(base_dir: str) -> List[str]:
+    """Read .gitignore patterns from base_dir/.gitignore. Returns a list of patterns."""
+    gitignore_path = os.path.join(base_dir, ".gitignore")
+    patterns: List[str] = []
+    if not os.path.isfile(gitignore_path):
+        return patterns
+    with open(gitignore_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments and blank lines
+            if not line or line.startswith("#"):
+                continue
+            patterns.append(line)
+    return patterns
+
+
+def is_ignored(rel_path: str, patterns: List[str]) -> bool:
+    """
+    Check if a relative file path matches any .gitignore pattern.
+    Handles directory patterns (ending with /), glob patterns, and negations (!).
+    """
+    ignored = False
+    # Normalize the path for consistent matching
+    norm_path = rel_path.replace(os.sep, "/")
+    parts = norm_path.split("/")
+    filename = parts[-1]
+
+    for pattern in patterns:
+        is_negation = pattern.startswith("!")
+        if is_negation:
+            pattern = pattern[1:]
+
+        # Remove trailing slash — it means "match directory only"
+        is_dir_pattern = pattern.endswith("/")
+        match_pattern = pattern.rstrip("/")
+
+        # Build candidate strings to test against
+        candidates = [norm_path, filename]
+        # Also test each parent directory segment
+        for i in range(1, len(parts)):
+            candidates.append("/".join(parts[i:]))
+
+        for candidate in candidates:
+            # Exact match
+            if candidate == match_pattern:
+                ignored = not is_negation
+                continue
+            # fnmatch glob (supports *, ?, [..])
+            if fnmatch.fnmatch(candidate, match_pattern):
+                ignored = not is_negation
+                continue
+            # Pattern with no slash matches any path component at any depth
+            if "/" not in match_pattern:
+                if fnmatch.fnmatch(filename, match_pattern):
+                    ignored = not is_negation
+                    continue
+            # Directory pattern: match any path that starts with the dir
+            if is_dir_pattern:
+                for i in range(len(parts)):
+                    if fnmatch.fnmatch("/".join(parts[:i + 1]), match_pattern) or fnmatch.fnmatch(parts[i], match_pattern):
+                        ignored = not is_negation
+
+    return ignored
+
+
 def main() -> int:
     try:
         token = load_token_from_env()
@@ -141,14 +209,34 @@ def main() -> int:
 
             current_directory = os.getcwd()
             print(f"\nScanning workspace files in: {current_directory}")
-            
+
+            # Load .gitignore patterns
+            gitignore_patterns = parse_gitignore(current_directory)
+            if gitignore_patterns:
+                print(f"Loaded {len(gitignore_patterns)} pattern(s) from .gitignore")
+            else:
+                print("⚠️  No .gitignore found — all files will be uploaded")
+
+            # Hardcoded ignore patterns (always applied, even without .gitignore)
+            always_ignore = [
+                "node_modules", "__pycache__", ".venv", "venv", "env", ".env",
+                ".git", ".cache", ".config", ".local", ".npm", ".claude",
+                ".ipython", ".jupyter", ".ipynb_checkpoints", "dist", "build",
+                ".wrangler", ".mf", ".esbuild", "coverage", ".mypy_cache",
+                ".pytest_cache", ".ruff_cache", ".eggs", "*.egg-info",
+            ]
+
             # Map of relative path -> absolute path
             files_to_upload: Dict[str, str] = {}
+            skipped_count = 0
 
             # Recursively walk through current_directory and all subfolders
             for root, dirs, files in os.walk(current_directory):
                 # Ignore hidden directories like .git or .venv
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+                # Also filter out always-ignored directories
+                dirs[:] = [d for d in dirs if d not in always_ignore]
 
                 for file_name in files:
                     # Skip hidden files if desired
@@ -162,14 +250,25 @@ def main() -> int:
                     
                     # Ensure path separator is '/' for GitHub API compatibility (crucial on Windows)
                     github_path = rel_path.replace(os.sep, "/")
-                    
+
+                    # Check against .gitignore patterns
+                    if is_ignored(github_path, gitignore_patterns):
+                        skipped_count += 1
+                        continue
+
+                    # Check against always-ignore list (by filename or directory component)
+                    path_parts = github_path.split("/")
+                    if any(part in always_ignore for part in path_parts):
+                        skipped_count += 1
+                        continue
+
                     files_to_upload[github_path] = full_path
 
             if not files_to_upload:
-                print("No files found in the current directory or subdirectories to upload.")
+                print("No files found in the current directory or subdirectories to push.")
                 return 0
 
-            print(f"Found {len(files_to_upload)} file(s) across directory tree to push.\n")
+            print(f"Found {len(files_to_upload)} file(s) to push ({skipped_count} skipped by .gitignore).\n")
             
             # Push every file sequentially maintaining folder paths
             for github_path, full_path in files_to_upload.items():
