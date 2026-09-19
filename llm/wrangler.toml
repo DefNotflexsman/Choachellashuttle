@@ -1,0 +1,12 @@
+name = "llm-assistant"
+main = "src/entry.py"
+compatibility_flags = ["python_workers"]
+compatibility_date = "2026-09-17"
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shared-users-db"
+database_id = "1bff926b-2f73-437f-a358-8907a8c77f05"
