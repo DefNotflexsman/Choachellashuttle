@@ -1,0 +1,16 @@
+[project]
+name = "llm-assistant-worker"
+version = "1.0.0"
+description = "LLM assistant deployed as a Cloudflare Python Worker using Workers AI"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "pydantic",
+    "python-multipart",
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk"
+]
