@@ -1,0 +1,9 @@
+name = "downpixel-portal"
+main = "src/main.py"
+compatibility_date = "2026-09-18"
+compatibility_flags = ["python_workers"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shared-users-db"
+database_id = "1bff926b-2f73-437f-a358-8907a8c77f05"
