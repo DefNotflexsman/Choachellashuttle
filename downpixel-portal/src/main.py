@@ -6,7 +6,6 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-import httpx
 from fastapi import (
     FastAPI, Request, Header, Query, Path, HTTPException,
     WebSocket, WebSocketDisconnect, Depends, Form, Cookie, status,
@@ -22,26 +21,6 @@ app = FastAPI(debug=True, title="Asynchronous Portal Engine", description="FastA
 # ─── In-memory log store (caps at 5000 entries) ───
 _logs = []
 _MAX_LOGS = 5000
-# ─── Paths to exclude from logging ───
-_EXCLUDE_PATHS = {"/logs", "/logs/api"}
-
-def _should_log(path):
-    """Return False if the path is in the exclude set."""
-    return path not in _EXCLUDE_PATHS
-def add_log(level="info", source="http", message="", path=None, **extra):
-    # Skip logging for excluded paths
-    if path and path in _EXCLUDE_PATHS:
-        return
-    entry = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "level": level,
-        "source": source,
-        "message": message,
-        **extra,
-    }
-    _logs.append(entry)
-    if len(_logs) > _MAX_LOGS:
-        _logs[:] = _logs[-_MAX_LOGS:]
 _EXCLUDE_PATHS = {"/logs", "/logs/api", "/health", "/favicon.ico"}
 
 def add_log(level="info", source="http", message="", **extra):
@@ -267,6 +246,7 @@ async def read_item(item_id: int = Path(..., ge=1)):
 
 @app.get("/api/status", response_model=UUIDResponse, tags=["External APIs"])
 async def get_uuid_status(amount: int = Query(10, ge=1, le=1000)):
+    import httpx
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(f"https://www.uuidtools.com/api/generate/v1/count/{amount}", timeout=10.0)
@@ -298,6 +278,7 @@ async def launch_minecraft_server(current_user: User = Depends(get_current_user)
 
 @app.get("/api/github/info", tags=["External APIs"])
 async def get_github_repo_info():
+    import httpx
     repo = github_creds["info"]["user"]
     async with httpx.AsyncClient() as client:
         try:
