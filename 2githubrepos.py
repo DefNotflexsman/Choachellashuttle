@@ -224,6 +224,7 @@ def main() -> int:
                 ".ipython", ".jupyter", ".ipynb_checkpoints", "dist", "build",
                 ".wrangler", ".mf", ".esbuild", "coverage", ".mypy_cache",
                 ".pytest_cache", ".ruff_cache", ".eggs", "*.egg-info",
+                "python_modules",
             ]
 
             # Map of relative path -> absolute path
