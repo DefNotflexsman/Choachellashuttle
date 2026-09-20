@@ -33,7 +33,7 @@ fake_users_db = {
     "admin": {"username": "admin", "full_name": "Portal Admin", "hashed_password": hash_password("secret123"), "is_admin": True},
     "johndoe": {"username": "johndoe", "full_name": "John Doe", "hashed_password": hash_password("userpassword123"), "is_admin": False},
 }
-github_creds = {"info": {"user": "DefNotflexsman/server-att2"}}
+github_creds = "DefNotflexsman/server-att2"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # D1 DATABASE HELPERS
@@ -1059,10 +1059,10 @@ async def launch_minecraft_server(current_user: User = Depends(get_current_user)
 @app.get("/api/github/info", tags=["External APIs"])
 async def get_github_repo_info():
     import httpx
-    repo = github_creds["info"]["user"]
+    repo = github_creds
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(f"https://api.github.com/repos/{repo}", headers={"User-Agent": "FastAPI-Portal-Engine"}, timeout=10.0)
+            response = await client.get(f"https://api.github.com/{repo}", headers={"User-Agent": "FastAPI-Portal-Engine"}, timeout=10.0)
             if response.status_code != 200:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"GitHub API error (HTTP {response.status_code}).")
             return {"status": "success", "repository": repo, "data": response.json()}
